@@ -1,0 +1,35 @@
+# -------------------------
+# Python Virtual Environment
+# -------------------------
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.env
+
+# -------------------------
+# Django
+# -------------------------
+db.sqlite3
+*.log
+media/
+staticfiles/
+
+# -------------------------
+# Node / Next.js
+# -------------------------
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# -------------------------
+# OS Files
+# -------------------------
+Thumbs.db
+.DS_Store
