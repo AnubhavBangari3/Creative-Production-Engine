@@ -124,6 +124,20 @@ Topic: {topic}
 Tone: {tone}
 Language: {language}
 """
+    # Auto-save successful generations
+    try:
+        ProductionKit.objects.create(
+            topic=kit.get("topic", topic),
+            tone=kit.get("tone", tone),
+            language=kit.get("language", language),
+            kit=kit
+        )
+
+        # keep only last 5 in DB (hackathon style)
+        ids_to_keep = list(ProductionKit.objects.values_list("id", flat=True)[:5])
+        ProductionKit.objects.exclude(id__in=ids_to_keep).delete()
+    except Exception:
+        pass
 
     try:
         raw = call_ollama(prompt)
@@ -298,3 +312,40 @@ def export_kit(request):
     safe = "".join(c for c in topic[:30] if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
     resp["Content-Disposition"] = f'attachment; filename="{safe}_kit.txt"'
     return resp
+
+from .models import ProductionKit
+
+@api_view(["GET"])
+def recent_kits(request):
+    limit = int(request.query_params.get("limit", 5))
+    limit = max(1, min(limit, 20))  # safety
+    kits = ProductionKit.objects.all()[:limit]
+
+    data = [
+        {
+            "id": k.id,
+            "topic": k.topic,
+            "tone": k.tone,
+            "language": k.language,
+            "created_at": k.created_at.isoformat(),
+        }
+        for k in kits
+    ]
+    return Response({"results": data})
+
+
+@api_view(["GET"])
+def kit_detail(request, kit_id: int):
+    try:
+        k = ProductionKit.objects.get(id=kit_id)
+    except ProductionKit.DoesNotExist:
+        return Response({"error": "Kit not found"}, status=404)
+
+    return Response({
+        "id": k.id,
+        "topic": k.topic,
+        "tone": k.tone,
+        "language": k.language,
+        "created_at": k.created_at.isoformat(),
+        "kit": k.kit,
+    })
