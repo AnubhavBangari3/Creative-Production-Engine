@@ -249,3 +249,52 @@ Return JSON EXACTLY:
 
     except Exception as e:
         return Response({"error": str(e)}, status=500)
+    
+from django.http import HttpResponse
+
+@api_view(["POST"])
+def export_kit(request):
+    data = request.data
+    topic = data.get("topic", "Untitled")
+
+    def lines(title):
+        return f"\n\n====================\n{title}\n====================\n"
+
+    content = ""
+    content += lines("CREATIVE PRODUCTION KIT")
+    content += f"TOPIC: {topic}\n"
+    content += f"TONE: {data.get('tone','')}\n"
+    content += f"LANGUAGE: {data.get('language','')}\n"
+
+    content += lines("HOOKS")
+    for h in data.get("hooks", []):
+        content += f"- {h}\n"
+
+    content += lines("TITLES")
+    for t in data.get("titles", []):
+        content += f"- {t}\n"
+
+    content += lines("DESCRIPTION")
+    content += f"{data.get('description','')}\n"
+
+    content += lines("TAGS")
+    tags = data.get("tags", [])
+    content += ", ".join(tags) + "\n"
+
+    thumb = data.get("thumbnail", {}) or {}
+    content += lines("THUMBNAIL")
+    content += f"Text: {thumb.get('text','')}\n"
+    content += f"Prompt: {thumb.get('prompt','')}\n"
+
+    content += lines("SHORTS")
+    for s in data.get("shorts", []):
+        content += f"\nTitle: {s.get('title','')}\n"
+        content += f"Script: {s.get('script','')}\n"
+
+    content += lines("LONG SCRIPT")
+    content += f"{data.get('script','')}\n"
+
+    resp = HttpResponse(content, content_type="text/plain")
+    safe = "".join(c for c in topic[:30] if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+    resp["Content-Disposition"] = f'attachment; filename="{safe}_kit.txt"'
+    return resp

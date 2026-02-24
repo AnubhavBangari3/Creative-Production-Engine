@@ -187,6 +187,30 @@ export default function Home() {
         </div>
       )}
 
+      {kit && !kit.error && (
+  <button
+    onClick={async () => {
+      const res = await axios.post(`${API_BASE}/export/`, kit, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "text/plain" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(kit.topic || "kit").replace(/\s+/g, "_")}_kit.txt`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    }}
+    className="px-4 py-2 bg-green-600 text-white rounded"
+  >
+    Export Kit (.txt)
+  </button>
+)}
+
+{/* <div className="flex gap-2 mb-3">
+  <button className="px-3 py-1 border rounded" onClick={() => setTopic("Why AI will change education")}>Demo 1</button>
+  <button className="px-3 py-1 border rounded" onClick={() => setTopic("How inflation affects daily life")}>Demo 2</button>
+  <button className="px-3 py-1 border rounded" onClick={() => setTopic("The real reason habits are hard to change")}>Demo 3</button>
+</div> */}
+
       {/* Error block */}
       {kit?.error && (
         <div className="p-4 border rounded bg-red-50 mb-6">
