@@ -35,18 +35,15 @@ const API_BASE = "http://127.0.0.1:8000/api";
 const toStringArray = (v: any): string[] => {
   if (!v) return [];
 
-  // 1) If it's already an array
   if (Array.isArray(v)) {
     return v
       .map((item) => {
         if (typeof item === "string") return item;
 
-        // if LLM returns objects like { title: "..."} or { text: "..." }
         if (item && typeof item === "object") {
           if (typeof (item as any).title === "string") return (item as any).title;
           if (typeof (item as any).text === "string") return (item as any).text;
 
-          // last-resort: join string values
           const vals = Object.values(item)
             .filter((x) => typeof x === "string")
             .join(" ");
@@ -59,7 +56,6 @@ const toStringArray = (v: any): string[] => {
       .filter(Boolean);
   }
 
-  // 2) If it's a string (comma/newline separated)
   if (typeof v === "string") {
     return v
       .split(/\r?\n|,/g)
@@ -67,9 +63,9 @@ const toStringArray = (v: any): string[] => {
       .filter(Boolean);
   }
 
-  // 3) If it's an object with a list inside (sometimes LLM returns { items: [...] })
   if (typeof v === "object") {
-    const possible = (v as any).items || (v as any).titles || (v as any).hooks || (v as any).tags;
+    const possible =
+      (v as any).items || (v as any).titles || (v as any).hooks || (v as any).tags;
     if (Array.isArray(possible)) return toStringArray(possible);
   }
 
@@ -94,7 +90,6 @@ const toThumbnail = (v: any): { text: string; prompt: string } => {
   };
 };
 
-// ✅ NEW: only accept non-empty strings; supports nested response shapes
 const pickNonEmptyString = (value: any): string | null => {
   if (typeof value === "string") {
     const s = value.trim();
@@ -114,14 +109,12 @@ const pickNonEmptyString = (value: any): string | null => {
   return null;
 };
 
-// ✅ NEW: don’t overwrite thumbnail fields if new ones are empty/missing
 const normalizeThumbnail = (
   value: any,
   prevThumb?: { text: string; prompt: string }
 ): { text: string; prompt: string } => {
   const prev = prevThumb ?? { text: "", prompt: "" };
 
-  // backend returns a string => treat as prompt
   if (typeof value === "string") {
     const p = value.trim();
     return {
@@ -130,7 +123,6 @@ const normalizeThumbnail = (
     };
   }
 
-  // backend returns an object
   if (value && typeof value === "object") {
     const text =
       typeof (value as any).text === "string" && (value as any).text.trim().length
@@ -162,17 +154,25 @@ const classNames = (...xs: Array<string | false | null | undefined>) =>
 export default function Home() {
   const [topic, setTopic] = useState("");
   const [kit, setKit] = useState<Kit | null>(null);
-  const [loading, setLoading] = useState(false);
+
+  // ✅ split loading states
+  const [loadingGenerate, setLoadingGenerate] = useState(false);
+  const [loadingRecent, setLoadingRecent] = useState(false);
+  const [loadingKitId, setLoadingKitId] = useState<number | null>(null);
+  const [regenerating, setRegenerating] = useState<string | null>(null);
 
   const [recent, setRecent] = useState<RecentItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const fetchRecent = async () => {
+    setLoadingRecent(true);
     try {
       const res = await axios.get(`${API_BASE}/kits/recent/?limit=5`);
       setRecent(res.data?.results ?? []);
     } catch {
       setRecent([]);
+    } finally {
+      setLoadingRecent(false);
     }
   };
 
@@ -182,7 +182,7 @@ export default function Home() {
 
   const loadKitById = async (id: number) => {
     setSelectedId(id);
-    setLoading(true);
+    setLoadingKitId(id);
     try {
       const res = await axios.get(`${API_BASE}/kits/${id}/`);
       const loadedKit = res.data?.kit;
@@ -190,13 +190,14 @@ export default function Home() {
     } catch {
       alert("Failed to load kit");
     } finally {
-      setLoading(false);
+      setLoadingKitId(null);
     }
   };
 
   const generate = async () => {
     if (!topic.trim()) return;
-    setLoading(true);
+
+    setLoadingGenerate(true);
     setKit(null);
     setSelectedId(null);
 
@@ -225,13 +226,14 @@ export default function Home() {
         raw: e?.message || "Unknown error",
       });
     } finally {
-      setLoading(false);
+      setLoadingGenerate(false);
     }
   };
 
   const regenerate = async (section: string) => {
     if (!kit) return;
-    setLoading(true);
+
+    setRegenerating(section);
 
     try {
       const res = await axios.post(`${API_BASE}/regenerate/`, {
@@ -251,7 +253,6 @@ export default function Home() {
 
         if (sec === "hooks" || sec === "titles" || sec === "tags") {
           const arr = toStringArray(value);
-          // ✅ don't wipe if empty array comes back
           return arr.length ? { ...prev, [sec]: arr } : prev;
         }
 
@@ -261,7 +262,6 @@ export default function Home() {
         }
 
         if (sec === "thumbnail") {
-          // ✅ don’t erase prompt/text if backend returns empty
           return {
             ...prev,
             thumbnail: normalizeThumbnail(value, toThumbnail(prev.thumbnail)),
@@ -270,7 +270,6 @@ export default function Home() {
 
         if (sec === "script" || sec === "description") {
           const next = pickNonEmptyString(value);
-          // ✅ don't erase old content if backend returns empty
           return next ? { ...prev, [sec]: next } : prev;
         }
 
@@ -279,7 +278,7 @@ export default function Home() {
     } catch {
       alert("Regenerate failed");
     } finally {
-      setLoading(false);
+      setRegenerating(null);
     }
   };
 
@@ -302,20 +301,21 @@ export default function Home() {
   const thumbnail = useMemo(() => toThumbnail(kit?.thumbnail), [kit]);
   const description = typeof kit?.description === "string" ? kit.description : "";
   const script =
-    typeof kit?.script === "string" && kit.script.trim().length
-      ? kit.script
-      : "-";
+    typeof kit?.script === "string" && kit.script.trim().length ? kit.script : "-";
+
+  const isBusyAny =
+    loadingGenerate || loadingRecent || loadingKitId !== null || regenerating !== null;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-900">
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/20 backdrop-blur-sm">
+      {/* ✅ Full screen overlay ONLY for generate */}
+      {loadingGenerate && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/10 backdrop-blur-[2px]">
           <div className="rounded-2xl bg-white shadow-xl border border-slate-200 px-6 py-5 flex items-center gap-3">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
             <div>
-              <p className="font-semibold">Working…</p>
-              <p className="text-sm text-slate-600">Generating / loading content</p>
+              <p className="font-semibold">Generating…</p>
+              <p className="text-sm text-slate-600">Building your content kit</p>
             </div>
           </div>
         </div>
@@ -325,20 +325,18 @@ export default function Home() {
         {/* Top Header */}
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              Creative Production Engine
-            </h1>
-            <p className="mt-1 text-slate-600">
+            <h1 className="text-3xl font-bold tracking-tight">Creative Production Engine</h1>
+            {/* <p className="mt-1 text-slate-600">
               One topic in → publish-ready content kit out (local AI, no paid APIs)
-            </p>
+            </p> */}
           </div>
 
-          <div className="hidden md:flex items-center gap-2">
+          {/* <div className="hidden md:flex items-center gap-2">
             <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
               Demo-ready
             </span>
-          </div>
+          </div> */}
         </div>
 
         <div className="grid grid-cols-12 gap-6">
@@ -348,20 +346,39 @@ export default function Home() {
               <div className="p-4 border-b border-slate-200">
                 <div className="flex items-center justify-between">
                   <h2 className="font-semibold">Recent Kits</h2>
+
+                  {/* ✅ Inline refresh spinner */}
                   <button
                     onClick={fetchRecent}
-                    className="text-sm font-medium text-slate-600 hover:text-slate-900"
+                    disabled={loadingRecent}
+                    className={classNames(
+                      "text-sm font-medium inline-flex items-center gap-2 rounded-lg px-2 py-1 transition",
+                      loadingRecent
+                        ? "text-slate-400 cursor-not-allowed"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                    )}
                   >
+                    {loadingRecent && (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
+                    )}
                     Refresh
                   </button>
                 </div>
-                <p className="mt-1 text-sm text-slate-500">
-                  Click to load a previous kit.
-                </p>
+                <p className="mt-1 text-sm text-slate-500">Click to load a previous kit.</p>
               </div>
 
               <div className="p-2">
-                {recent.length === 0 ? (
+                {/* ✅ Skeleton while refreshing */}
+                {loadingRecent ? (
+                  <div className="p-3 space-y-2">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="h-4 w-3/4 rounded bg-slate-100 animate-pulse" />
+                        <div className="mt-2 h-3 w-1/2 rounded bg-slate-100 animate-pulse" />
+                      </div>
+                    ))}
+                  </div>
+                ) : recent.length === 0 ? (
                   <div className="p-4 text-sm text-slate-600">
                     No history yet. Generate your first kit.
                   </div>
@@ -371,17 +388,36 @@ export default function Home() {
                       <button
                         key={item.id}
                         onClick={() => loadKitById(item.id)}
+                        disabled={loadingKitId !== null && loadingKitId !== item.id}
                         className={classNames(
                           "w-full text-left rounded-xl border px-3 py-3 transition shadow-sm",
                           "hover:shadow-md hover:border-slate-300",
                           selectedId === item.id
                             ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-200 bg-white text-slate-900"
+                            : "border-slate-200 bg-white text-slate-900",
+                          loadingKitId !== null && loadingKitId !== item.id
+                            ? "opacity-60 cursor-not-allowed"
+                            : ""
                         )}
                       >
-                        <div className="font-semibold leading-snug">
-                          {item.topic.length > 64 ? item.topic.slice(0, 64) + "…" : item.topic}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="font-semibold leading-snug">
+                            {item.topic.length > 64 ? item.topic.slice(0, 64) + "…" : item.topic}
+                          </div>
+
+                          {/* ✅ Spinner only on clicked item */}
+                          {loadingKitId === item.id && (
+                            <span
+                              className={classNames(
+                                "h-4 w-4 animate-spin rounded-full border-2",
+                                selectedId === item.id
+                                  ? "border-white/40 border-t-white"
+                                  : "border-slate-300 border-t-slate-900"
+                              )}
+                            />
+                          )}
                         </div>
+
                         <div
                           className={classNames(
                             "mt-1 text-xs",
@@ -406,9 +442,7 @@ export default function Home() {
                 <div className="p-4">
                   <div className="flex flex-col lg:flex-row gap-3">
                     <div className="flex-1">
-                      <label className="text-sm font-medium text-slate-700">
-                        Topic
-                      </label>
+                      <label className="text-sm font-medium text-slate-700">Topic</label>
                       <input
                         value={topic}
                         onChange={(e) => setTopic(e.target.value)}
@@ -420,10 +454,10 @@ export default function Home() {
                     <div className="flex items-end gap-2">
                       <button
                         onClick={generate}
-                        disabled={!topic.trim() || loading}
+                        disabled={!topic.trim() || loadingGenerate}
                         className={classNames(
                           "rounded-xl px-5 py-3 font-semibold shadow-sm transition",
-                          !topic.trim() || loading
+                          !topic.trim() || loadingGenerate
                             ? "bg-slate-200 text-slate-500 cursor-not-allowed"
                             : "bg-slate-900 text-white hover:bg-slate-800"
                         )}
@@ -445,21 +479,45 @@ export default function Home() {
                   {/* Action row */}
                   {kit && !kit.error && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {[
-                        ["hooks", "Regenerate Hooks"],
-                        ["titles", "Regenerate Titles"],
-                        ["thumbnail", "Regenerate Thumbnail"],
-                        ["shorts", "Regenerate Shorts"],
-                        ["script", "Regenerate Script"],
-                      ].map(([key, label]) => (
-                        <button
-                          key={key}
-                          onClick={() => regenerate(key)}
-                          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-300 hover:shadow transition"
-                        >
-                          {label}
-                        </button>
-                      ))}
+                      {
+                        [
+                          ["hooks", "Regenerate Hooks"],
+                          ["titles", "Regenerate Titles"],
+                          ["description", "Regenerate Description"],
+                          ["tags", "Regenerate Tags"],
+                          ["thumbnail", "Regenerate Thumbnail"],
+                          ["shorts", "Regenerate Shorts"],
+                          ["script", "Regenerate Script"],
+
+                      ].map(([key, label]) => {
+                        const active = regenerating === key;
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => regenerate(key)}
+                            disabled={regenerating !== null}
+                            className={classNames(
+                              "rounded-xl border px-4 py-2 text-sm font-semibold shadow-sm transition inline-flex items-center gap-2",
+                              active
+                                ? "border-slate-300 bg-slate-50 text-slate-900"
+                                : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:shadow",
+                              regenerating !== null && !active ? "opacity-60 cursor-not-allowed" : ""
+                            )}
+                          >
+                            {active && (
+                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
+                            )}
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* tiny busy hint (optional) */}
+                  {isBusyAny && !loadingGenerate && (
+                    <div className="mt-3 text-xs text-slate-500">
+                      Updating content…
                     </div>
                   )}
                 </div>
@@ -533,18 +591,14 @@ export default function Home() {
                 </Card>
 
                 <Card title="Tags" subtitle="Copy-paste ready tags.">
-                  <p className="text-slate-800">
-                    {tags.length ? tags.join(", ") : "-"}
-                  </p>
+                  <p className="text-slate-800">{tags.length ? tags.join(", ") : "-"}</p>
                 </Card>
 
                 <Card title="Thumbnail" subtitle="Text + image prompt for your generator tool.">
                   <div className="space-y-2">
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="text-sm text-slate-600">Text</p>
-                      <p className="font-semibold text-slate-900">
-                        {thumbnail.text || "-"}
-                      </p>
+                      <p className="font-semibold text-slate-900">{thumbnail.text || "-"}</p>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="text-sm text-slate-600">Prompt</p>
@@ -559,7 +613,10 @@ export default function Home() {
                   ) : (
                     <div className="space-y-3">
                       {shorts.map((s, i) => (
-                        <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div
+                          key={i}
+                          className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                        >
                           <p className="font-semibold text-slate-900">{s.title}</p>
                           <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800 leading-relaxed">
                             {s.script}
