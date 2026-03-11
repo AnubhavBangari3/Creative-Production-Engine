@@ -13,9 +13,17 @@ https://youtu.be/ms4jUqn2d9M?si=DFgYH4oMEZQeo3mY
 
 
 Backend: Django, Django REST Framework (DRF), CORS
+
+
 Database: SQLite, PostgreSQL (optional), psycopg2
+
+
 AI (Local LLM): Ollama, Llama 3
+
+
 Frontend: Next.js (React), TypeScript, Tailwind CSS
+
+
 HTTP: axios, requests
 
 
