@@ -1,5 +1,5 @@
 # Creative-Production-Engine
-Creative Production Engine
+AI Creator Studio
 
 
 https://devpost.com/software/creative-production-engine
